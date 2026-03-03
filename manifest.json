@@ -1,0 +1,25 @@
+{
+  "name": "VOICE — テキスト読み上げ",
+  "short_name": "VOICE",
+  "description": "ブラウザで動くオフライン対応テキスト読み上げアプリ",
+  "start_url": "./tts-app.html",
+  "display": "standalone",
+  "background_color": "#0e0e0f",
+  "theme_color": "#c8f060",
+  "orientation": "portrait-primary",
+  "lang": "ja",
+  "icons": [
+    {
+      "src": "./icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "./icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
