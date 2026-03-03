@@ -1,0 +1,932 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VOICE — 読み上げアプリ</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Mono:wght@300;400;500&family=Noto+Sans+JP:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #0e0e0f;
+    --surface: #16161a;
+    --surface2: #1e1e24;
+    --border: #2a2a35;
+    --accent: #c8f060;
+    --accent2: #60d0f0;
+    --text: #e8e8f0;
+    --text-dim: #6e6e88;
+    --text-dimmer: #3a3a50;
+    --playing: #c8f060;
+    --radius: 16px;
+  }
+
+  html, body {
+    height: 100%;
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'DM Mono', 'Noto Sans JP', monospace;
+    overflow-x: hidden;
+  }
+
+  /* Noise texture overlay */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.04'/%3E%3C/svg%3E");
+    pointer-events: none;
+    z-index: 0;
+    opacity: 0.6;
+  }
+
+  .container {
+    position: relative;
+    z-index: 1;
+    min-height: 100vh;
+    max-width: 780px;
+    margin: 0 auto;
+    padding: 40px 24px 60px;
+    display: flex;
+    flex-direction: column;
+    gap: 28px;
+  }
+
+  /* Header */
+  header {
+    display: flex;
+    align-items: baseline;
+    gap: 16px;
+    padding-bottom: 20px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .logo {
+    font-family: 'DM Serif Display', serif;
+    font-size: 2.8rem;
+    letter-spacing: -0.02em;
+    color: var(--text);
+    line-height: 1;
+  }
+
+  .logo span {
+    color: var(--accent);
+  }
+
+  .tagline {
+    font-size: 0.72rem;
+    color: var(--text-dim);
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+  }
+
+  /* Status badge */
+  .status-badge {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.72rem;
+    color: var(--text-dim);
+    letter-spacing: 0.1em;
+  }
+
+  .status-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--text-dimmer);
+    transition: background 0.3s, box-shadow 0.3s;
+  }
+
+  .status-dot.active {
+    background: var(--accent);
+    box-shadow: 0 0 8px var(--accent);
+    animation: pulse-dot 1.5s ease-in-out infinite;
+  }
+
+  @keyframes pulse-dot {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+  }
+
+  /* Textarea */
+  .textarea-wrapper {
+    position: relative;
+  }
+
+  textarea {
+    width: 100%;
+    min-height: 220px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 24px;
+    color: var(--text);
+    font-family: 'Noto Sans JP', sans-serif;
+    font-size: 1.05rem;
+    line-height: 1.9;
+    font-weight: 300;
+    resize: vertical;
+    outline: none;
+    transition: border-color 0.25s;
+    caret-color: var(--accent);
+  }
+
+  textarea:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(200, 240, 96, 0.07);
+  }
+
+  textarea::placeholder {
+    color: var(--text-dimmer);
+  }
+
+  .char-count {
+    position: absolute;
+    bottom: 14px;
+    right: 18px;
+    font-size: 0.7rem;
+    color: var(--text-dimmer);
+    font-family: 'DM Mono', monospace;
+  }
+
+  /* Highlight overlay for reading */
+  .highlight-display {
+    display: none;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 24px;
+    font-family: 'Noto Sans JP', sans-serif;
+    font-size: 1.05rem;
+    line-height: 1.9;
+    font-weight: 300;
+    min-height: 220px;
+    white-space: pre-wrap;
+    word-break: break-all;
+  }
+
+  .highlight-display.visible {
+    display: block;
+  }
+
+  .word-highlight {
+    background: rgba(200, 240, 96, 0.25);
+    color: var(--accent);
+    border-radius: 3px;
+    padding: 0 2px;
+    transition: background 0.1s;
+  }
+
+  /* Controls row */
+  .controls-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+  }
+
+  .control-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 20px 22px;
+  }
+
+  .control-label {
+    font-size: 0.68rem;
+    color: var(--text-dim);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    margin-bottom: 12px;
+  }
+
+  /* Language toggle */
+  .lang-toggle {
+    display: flex;
+    gap: 8px;
+  }
+
+  .lang-btn {
+    flex: 1;
+    padding: 10px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: transparent;
+    color: var(--text-dim);
+    font-family: 'DM Mono', monospace;
+    font-size: 0.85rem;
+    cursor: pointer;
+    transition: all 0.2s;
+    letter-spacing: 0.05em;
+  }
+
+  .lang-btn.active {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #0e0e0f;
+    font-weight: 500;
+  }
+
+  /* Slider */
+  .slider-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  input[type=range] {
+    flex: 1;
+    -webkit-appearance: none;
+    height: 3px;
+    background: var(--border);
+    border-radius: 2px;
+    outline: none;
+    cursor: pointer;
+  }
+
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 6px rgba(200, 240, 96, 0.5);
+    cursor: pointer;
+    transition: transform 0.15s;
+  }
+
+  input[type=range]::-webkit-slider-thumb:hover {
+    transform: scale(1.2);
+  }
+
+  .slider-val {
+    font-size: 0.78rem;
+    color: var(--accent);
+    min-width: 36px;
+    text-align: right;
+    font-family: 'DM Mono', monospace;
+  }
+
+  /* Voice selector */
+  .voice-select-wrap {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 20px 22px;
+  }
+
+  select {
+    width: 100%;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    color: var(--text);
+    font-family: 'DM Mono', monospace;
+    font-size: 0.82rem;
+    padding: 10px 14px;
+    outline: none;
+    cursor: pointer;
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%236e6e88' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 14px center;
+    padding-right: 36px;
+  }
+
+  select:focus {
+    border-color: var(--accent);
+  }
+
+  /* Playback bar */
+  .playback-bar {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 22px 26px;
+  }
+
+  /* Progress */
+  .progress-track {
+    width: 100%;
+    height: 3px;
+    background: var(--border);
+    border-radius: 2px;
+    margin-bottom: 22px;
+    overflow: hidden;
+  }
+
+  .progress-fill {
+    height: 100%;
+    width: 0%;
+    background: linear-gradient(90deg, var(--accent2), var(--accent));
+    border-radius: 2px;
+    transition: width 0.3s ease;
+    box-shadow: 0 0 8px rgba(200, 240, 96, 0.4);
+  }
+
+  /* Play buttons */
+  .btn-row {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+  }
+
+  .btn-play {
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    border: none;
+    background: var(--accent);
+    color: #0e0e0f;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: transform 0.15s, box-shadow 0.15s;
+    box-shadow: 0 0 20px rgba(200, 240, 96, 0.3);
+    flex-shrink: 0;
+  }
+
+  .btn-play:hover {
+    transform: scale(1.06);
+    box-shadow: 0 0 28px rgba(200, 240, 96, 0.5);
+  }
+
+  .btn-play:active { transform: scale(0.96); }
+
+  .btn-play svg { width: 22px; height: 22px; }
+
+  .btn-secondary {
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--text-dim);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+    flex-shrink: 0;
+  }
+
+  .btn-secondary:hover {
+    border-color: var(--text-dim);
+    color: var(--text);
+  }
+
+  .btn-secondary svg { width: 18px; height: 18px; }
+
+  .playback-info {
+    margin-left: auto;
+    text-align: right;
+  }
+
+  .playback-state {
+    font-size: 0.72rem;
+    color: var(--text-dim);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+
+  .playback-state.playing {
+    color: var(--accent);
+  }
+
+  /* Waveform */
+  .waveform {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    height: 28px;
+    margin-top: 6px;
+    justify-content: flex-end;
+  }
+
+  .wave-bar {
+    width: 3px;
+    border-radius: 2px;
+    background: var(--text-dimmer);
+    transition: background 0.3s;
+  }
+
+  .wave-bar.active {
+    background: var(--accent);
+    animation: wave-anim 0.8s ease-in-out infinite;
+  }
+
+  .wave-bar:nth-child(1) { height: 8px; animation-delay: 0s; }
+  .wave-bar:nth-child(2) { height: 16px; animation-delay: 0.1s; }
+  .wave-bar:nth-child(3) { height: 22px; animation-delay: 0.2s; }
+  .wave-bar:nth-child(4) { height: 14px; animation-delay: 0.3s; }
+  .wave-bar:nth-child(5) { height: 20px; animation-delay: 0.15s; }
+  .wave-bar:nth-child(6) { height: 10px; animation-delay: 0.25s; }
+  .wave-bar:nth-child(7) { height: 18px; animation-delay: 0.05s; }
+
+  @keyframes wave-anim {
+    0%, 100% { transform: scaleY(1); }
+    50% { transform: scaleY(0.35); }
+  }
+
+  /* Notice */
+  .notice {
+    font-size: 0.72rem;
+    color: var(--text-dimmer);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 14px 18px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    line-height: 1.6;
+  }
+
+  .notice-icon { flex-shrink: 0; }
+
+  /* Error */
+  .error-msg {
+    display: none;
+    color: #f06060;
+    font-size: 0.78rem;
+    padding: 12px 16px;
+    background: rgba(240, 96, 96, 0.08);
+    border: 1px solid rgba(240, 96, 96, 0.25);
+    border-radius: 10px;
+  }
+
+  .error-msg.visible { display: block; }
+
+  /* Speed toast */
+  .speed-toast {
+    position: fixed;
+    bottom: 36px;
+    left: 50%;
+    transform: translateX(-50%) translateY(10px);
+    background: var(--surface2);
+    border: 1px solid var(--accent);
+    border-radius: 40px;
+    padding: 10px 24px;
+    font-family: 'DM Mono', monospace;
+    font-size: 1rem;
+    color: var(--accent);
+    letter-spacing: 0.08em;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.2s, transform 0.2s;
+    z-index: 100;
+    box-shadow: 0 0 20px rgba(200,240,96,0.2);
+  }
+  .speed-toast.show {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+
+  /* Page load animation */
+  .container > * {
+    animation: fadeUp 0.5s ease both;
+  }
+  .container > *:nth-child(1) { animation-delay: 0s; }
+  .container > *:nth-child(2) { animation-delay: 0.08s; }
+  .container > *:nth-child(3) { animation-delay: 0.14s; }
+  .container > *:nth-child(4) { animation-delay: 0.2s; }
+  .container > *:nth-child(5) { animation-delay: 0.26s; }
+  .container > *:nth-child(6) { animation-delay: 0.3s; }
+
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(18px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  @media (max-width: 560px) {
+    .controls-grid { grid-template-columns: 1fr; }
+    .logo { font-size: 2rem; }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <!-- Header -->
+  <header>
+    <div class="logo">VO<span>I</span>CE</div>
+    <div class="tagline">テキスト読み上げ</div>
+    <div class="status-badge">
+      <div class="status-dot" id="statusDot"></div>
+      <span id="statusText">待機中</span>
+    </div>
+  </header>
+
+  <!-- Error -->
+  <div class="error-msg" id="errorMsg">
+    ⚠ お使いのブラウザはWeb Speech APIに対応していません。Chrome または Edge をお使いください。
+  </div>
+
+  <!-- Textarea / Highlight display -->
+  <div class="textarea-wrapper" id="textareaWrapper">
+    <textarea id="textInput" placeholder="ここにテキストを入力してください…&#10;&#10;例：今日も一日お疲れ様でした。ゆっくり休んでください。" maxlength="5000"></textarea>
+    <div class="char-count"><span id="charCount">0</span> / 5000</div>
+  </div>
+  <div class="highlight-display" id="highlightDisplay"></div>
+
+  <!-- Controls -->
+  <div class="controls-grid">
+    <!-- Language -->
+    <div class="control-card">
+      <div class="control-label">言語 / Language</div>
+      <div class="lang-toggle">
+        <button class="lang-btn active" id="btnJa" onclick="setLang('ja')">日本語</button>
+        <button class="lang-btn" id="btnEn" onclick="setLang('en')">English</button>
+      </div>
+    </div>
+
+    <!-- Speed -->
+    <div class="control-card">
+      <div class="control-label">読み上げ速度</div>
+      <div class="slider-row">
+        <span style="font-size:0.75rem;color:var(--text-dimmer)">遅</span>
+        <input type="range" id="speedSlider" min="0.5" max="2" step="0.1" value="1" oninput="updateSlider('speed')">
+        <span style="font-size:0.75rem;color:var(--text-dimmer)">速</span>
+        <div class="slider-val" id="speedVal">1.0x</div>
+      </div>
+    </div>
+
+    <!-- Pitch -->
+    <div class="control-card">
+      <div class="control-label">音程 (ピッチ)</div>
+      <div class="slider-row">
+        <span style="font-size:0.75rem;color:var(--text-dimmer)">低</span>
+        <input type="range" id="pitchSlider" min="0.5" max="2" step="0.1" value="1" oninput="updateSlider('pitch')">
+        <span style="font-size:0.75rem;color:var(--text-dimmer)">高</span>
+        <div class="slider-val" id="pitchVal">1.0</div>
+      </div>
+    </div>
+
+    <!-- Volume -->
+    <div class="control-card">
+      <div class="control-label">音量</div>
+      <div class="slider-row">
+        <span style="font-size:0.75rem;color:var(--text-dimmer)">🔈</span>
+        <input type="range" id="volumeSlider" min="0" max="1" step="0.05" value="1" oninput="updateSlider('volume')">
+        <span style="font-size:0.75rem;color:var(--text-dimmer)">🔊</span>
+        <div class="slider-val" id="volumeVal">100%</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Voice selector -->
+  <div class="voice-select-wrap">
+    <div class="control-label" style="margin-bottom:12px">音声 / Voice</div>
+    <select id="voiceSelect"></select>
+  </div>
+
+  <!-- Playback -->
+  <div class="playback-bar">
+    <div class="progress-track">
+      <div class="progress-fill" id="progressFill"></div>
+    </div>
+    <div class="btn-row">
+      <!-- Play/Pause -->
+      <button class="btn-play" id="btnPlay" onclick="togglePlay()" title="再生 / 一時停止">
+        <svg id="iconPlay" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+        <svg id="iconPause" viewBox="0 0 24 24" fill="currentColor" style="display:none"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+      </button>
+
+      <!-- Stop -->
+      <button class="btn-secondary" onclick="stopReading()" title="停止">
+        <svg viewBox="0 0 24 24" fill="currentColor"><rect x="5" y="5" width="14" height="14" rx="2"/></svg>
+      </button>
+
+      <!-- Restart -->
+      <button class="btn-secondary" onclick="restartReading()" title="最初から">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="1 4 1 10 7 10"/>
+          <path d="M3.51 15a9 9 0 1 0 .49-5.51"/>
+        </svg>
+      </button>
+
+      <div class="playback-info">
+        <div class="playback-state" id="playbackState">STANDBY</div>
+        <div class="waveform">
+          <div class="wave-bar" id="wb1"></div>
+          <div class="wave-bar" id="wb2"></div>
+          <div class="wave-bar" id="wb3"></div>
+          <div class="wave-bar" id="wb4"></div>
+          <div class="wave-bar" id="wb5"></div>
+          <div class="wave-bar" id="wb6"></div>
+          <div class="wave-bar" id="wb7"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Notice -->
+  <div class="notice">
+    <span class="notice-icon">📶</span>
+    <span>ショートカット: <strong>Ctrl+Enter</strong> 再生/一時停止 &nbsp;|&nbsp; <strong>Ctrl+←→ / Ctrl+hl</strong> 速度 &nbsp;|&nbsp; <strong>Ctrl+↑↓ / Ctrl+kj</strong> 音量 &nbsp;|&nbsp; <strong>Esc</strong> 停止</span>
+  </div>
+
+</div>
+
+<div class="speed-toast" id="speedToast"></div>
+
+<script>
+  // ─── State ───────────────────────────────────────
+  const synth = window.speechSynthesis;
+  let voices = [];
+  let lang = 'ja';
+  let utterance = null;
+  let isPaused = false;
+  let isSpeaking = false;
+  let words = [];
+  let wordIndex = 0;
+  let charOffset = 0;
+
+  // ─── Init ─────────────────────────────────────────
+  if (!synth) {
+    document.getElementById('errorMsg').classList.add('visible');
+  }
+
+  function loadVoices() {
+    voices = synth.getVoices();
+    populateVoiceSelect();
+  }
+
+  synth.onvoiceschanged = loadVoices;
+  loadVoices();
+
+  function populateVoiceSelect() {
+    const sel = document.getElementById('voiceSelect');
+    sel.innerHTML = '';
+    const filtered = voices.filter(v => v.lang.startsWith(lang === 'ja' ? 'ja' : 'en'));
+    if (filtered.length === 0) {
+      const opt = document.createElement('option');
+      opt.textContent = '— デフォルト音声 —';
+      sel.appendChild(opt);
+      return;
+    }
+    filtered.forEach((v, i) => {
+      const opt = document.createElement('option');
+      opt.value = i;
+      opt.textContent = `${v.name} ${v.localService ? '📵' : '🌐'}`;
+      opt.dataset.name = v.name;
+      sel.appendChild(opt);
+    });
+  }
+
+  function setLang(l) {
+    lang = l;
+    document.getElementById('btnJa').classList.toggle('active', l === 'ja');
+    document.getElementById('btnEn').classList.toggle('active', l === 'en');
+    populateVoiceSelect();
+  }
+
+  // ─── Slider updates ──────────────────────────────
+  function updateSlider(type) {
+    const slider = document.getElementById(type + 'Slider');
+    const val = parseFloat(slider.value);
+    if (type === 'speed') document.getElementById('speedVal').textContent = val.toFixed(1) + 'x';
+    if (type === 'pitch') document.getElementById('pitchVal').textContent = val.toFixed(1);
+    if (type === 'volume') document.getElementById('volumeVal').textContent = Math.round(val * 100) + '%';
+  }
+
+  // ─── Char count ──────────────────────────────────
+  document.getElementById('textInput').addEventListener('input', function() {
+    document.getElementById('charCount').textContent = this.value.length;
+  });
+
+  // ─── Play / Pause / Stop ─────────────────────────
+  function togglePlay() {
+    if (!synth) return;
+    if (isSpeaking && !isPaused) {
+      synth.pause();
+      isPaused = true;
+      setUIState('paused');
+    } else if (isPaused) {
+      synth.resume();
+      isPaused = false;
+      setUIState('playing');
+    } else {
+      startReading();
+    }
+  }
+
+  function startReading() {
+    const text = document.getElementById('textInput').value.trim();
+    if (!text) return;
+
+    synth.cancel();
+    utterance = new SpeechSynthesisUtterance(text);
+
+    // Voice
+    const sel = document.getElementById('voiceSelect');
+    const filtered = voices.filter(v => v.lang.startsWith(lang === 'ja' ? 'ja' : 'en'));
+    if (filtered.length > 0 && sel.selectedIndex >= 0) {
+      utterance.voice = filtered[sel.selectedIndex] || filtered[0];
+    }
+
+    utterance.lang = lang === 'ja' ? 'ja-JP' : 'en-US';
+    utterance.rate = parseFloat(document.getElementById('speedSlider').value);
+    utterance.pitch = parseFloat(document.getElementById('pitchSlider').value);
+    utterance.volume = parseFloat(document.getElementById('volumeSlider').value);
+
+    // Prepare word highlight
+    words = text.split(/(\s+)/);
+    wordIndex = 0;
+    charOffset = 0;
+    renderHighlight(text, -1, 0);
+    showHighlight(true);
+
+    utterance.onboundary = function(e) {
+      if (e.name === 'word') {
+        renderHighlight(text, e.charIndex, e.charLength || 0);
+        // Progress
+        const pct = (e.charIndex / text.length) * 100;
+        document.getElementById('progressFill').style.width = pct + '%';
+      }
+    };
+
+    utterance.onstart = () => {
+      isSpeaking = true; isPaused = false;
+      setUIState('playing');
+    };
+
+    utterance.onend = () => {
+      isSpeaking = false; isPaused = false;
+      document.getElementById('progressFill').style.width = '100%';
+      setTimeout(() => {
+        document.getElementById('progressFill').style.width = '0%';
+        showHighlight(false);
+        setUIState('idle');
+        const ta = document.getElementById('textInput');
+        ta.focus();
+        ta.setSelectionRange(ta.value.length, ta.value.length);
+      }, 800);
+    };
+
+    utterance.onerror = (e) => {
+      if (e.error !== 'interrupted') {
+        isSpeaking = false;
+        setUIState('idle');
+      }
+    };
+
+    synth.speak(utterance);
+  }
+
+  function stopReading() {
+    synth.cancel();
+    isSpeaking = false;
+    isPaused = false;
+    document.getElementById('progressFill').style.width = '0%';
+    showHighlight(false);
+    setUIState('idle');
+  }
+
+  function restartReading() {
+    stopReading();
+    setTimeout(startReading, 100);
+  }
+
+  // ─── Highlight ───────────────────────────────────
+  function renderHighlight(text, charIndex, charLen) {
+    if (charIndex < 0) {
+      document.getElementById('highlightDisplay').textContent = text;
+      return;
+    }
+    const before = text.substring(0, charIndex);
+    const word = text.substring(charIndex, charIndex + charLen);
+    const after = text.substring(charIndex + charLen);
+    document.getElementById('highlightDisplay').innerHTML =
+      escapeHtml(before) +
+      `<span class="word-highlight">${escapeHtml(word)}</span>` +
+      escapeHtml(after);
+  }
+
+  function escapeHtml(str) {
+    return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+
+  function showHighlight(show) {
+    const ta = document.getElementById('textareaWrapper');
+    const hl = document.getElementById('highlightDisplay');
+    if (show) {
+      const text = document.getElementById('textInput').value;
+      hl.style.minHeight = ta.offsetHeight + 'px';
+      ta.style.display = 'none';
+      hl.classList.add('visible');
+    } else {
+      ta.style.display = '';
+      hl.classList.remove('visible');
+    }
+  }
+
+  // ─── UI State ────────────────────────────────────
+  function setUIState(state) {
+    const dot = document.getElementById('statusDot');
+    const statusText = document.getElementById('statusText');
+    const pbState = document.getElementById('playbackState');
+    const iconPlay = document.getElementById('iconPlay');
+    const iconPause = document.getElementById('iconPause');
+    const waveBars = document.querySelectorAll('.wave-bar');
+
+    if (state === 'playing') {
+      dot.classList.add('active');
+      statusText.textContent = '読み上げ中';
+      pbState.textContent = 'PLAYING';
+      pbState.className = 'playback-state playing';
+      iconPlay.style.display = 'none';
+      iconPause.style.display = '';
+      waveBars.forEach(b => b.classList.add('active'));
+    } else if (state === 'paused') {
+      dot.classList.remove('active');
+      statusText.textContent = '一時停止';
+      pbState.textContent = 'PAUSED';
+      pbState.className = 'playback-state';
+      iconPlay.style.display = '';
+      iconPause.style.display = 'none';
+      waveBars.forEach(b => b.classList.remove('active'));
+    } else {
+      dot.classList.remove('active');
+      statusText.textContent = '待機中';
+      pbState.textContent = 'STANDBY';
+      pbState.className = 'playback-state';
+      iconPlay.style.display = '';
+      iconPause.style.display = 'none';
+      waveBars.forEach(b => b.classList.remove('active'));
+    }
+  }
+
+  let volumeToastTimer = null;
+  function showVolumeToast() {
+    const val = Math.round(parseFloat(document.getElementById('volumeSlider').value) * 100);
+    const toast = document.getElementById('speedToast');
+    const icon = val === 0 ? '🔇' : val < 50 ? '🔈' : '🔊';
+    toast.textContent = icon + ' ' + val + '%';
+    toast.classList.add('show');
+    clearTimeout(toastTimer);
+    clearTimeout(volumeToastTimer);
+    volumeToastTimer = setTimeout(() => toast.classList.remove('show'), 1200);
+  }
+
+  // ─── Speed toast ─────────────────────────────────
+  let toastTimer = null;
+  function showSpeedToast() {
+    const val = parseFloat(document.getElementById('speedSlider').value).toFixed(1);
+    const toast = document.getElementById('speedToast');
+    toast.textContent = '⚡ ' + val + 'x';
+    toast.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => toast.classList.remove('show'), 1200);
+  }
+
+  // ─── Keyboard shortcuts ──────────────────────────
+  document.addEventListener('keydown', (e) => {
+    if (e.code === 'Enter' && e.ctrlKey) { e.preventDefault(); togglePlay(); return; }
+    if (e.code === 'ArrowLeft' && e.ctrlKey) {
+      e.preventDefault();
+      const s = document.getElementById('speedSlider');
+      s.value = Math.max(0.5, parseFloat(s.value) - 0.1).toFixed(1);
+      updateSlider('speed');
+      showSpeedToast();
+      return;
+    }
+    if (e.code === 'ArrowRight' && e.ctrlKey) {
+      e.preventDefault();
+      const s = document.getElementById('speedSlider');
+      s.value = Math.min(2.0, parseFloat(s.value) + 0.1).toFixed(1);
+      updateSlider('speed');
+      showSpeedToast();
+      return;
+    }
+    if (e.code === 'ArrowUp' && e.ctrlKey) {
+      e.preventDefault();
+      const v = document.getElementById('volumeSlider');
+      v.value = Math.min(1.0, parseFloat(v.value) + 0.05).toFixed(2);
+      updateSlider('volume');
+      showVolumeToast();
+      return;
+    }
+    if (e.code === 'ArrowDown' && e.ctrlKey) {
+      e.preventDefault();
+      const v = document.getElementById('volumeSlider');
+      v.value = Math.max(0, parseFloat(v.value) - 0.05).toFixed(2);
+      updateSlider('volume');
+      showVolumeToast();
+      return;
+    }
+    // vim-style Ctrl+hjkl (works even while typing in textarea)
+    if (e.ctrlKey && e.key === 'k') { e.preventDefault(); const v = document.getElementById('volumeSlider'); v.value = Math.min(1.0, parseFloat(v.value) + 0.05).toFixed(2); updateSlider('volume'); showVolumeToast(); return; }
+    if (e.ctrlKey && e.key === 'j') { e.preventDefault(); const v = document.getElementById('volumeSlider'); v.value = Math.max(0, parseFloat(v.value) - 0.05).toFixed(2); updateSlider('volume'); showVolumeToast(); return; }
+    if (e.ctrlKey && e.key === 'l') { e.preventDefault(); const s = document.getElementById('speedSlider'); s.value = Math.min(2.0, parseFloat(s.value) + 0.1).toFixed(1); updateSlider('speed'); showSpeedToast(); return; }
+    if (e.ctrlKey && e.key === 'h') { e.preventDefault(); const s = document.getElementById('speedSlider'); s.value = Math.max(0.5, parseFloat(s.value) - 0.1).toFixed(1); updateSlider('speed'); showSpeedToast(); return; }
+    if (e.target === document.getElementById('textInput')) return;
+    if (e.code === 'Space') { e.preventDefault(); togglePlay(); }
+    if (e.code === 'Escape') stopReading();
+  });
+</script>
+</body>
+</html>
