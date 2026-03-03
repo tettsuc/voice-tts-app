@@ -180,6 +180,41 @@
     transition: background 0.1s;
   }
 
+  /* Floating play button inside textarea */
+  .btn-play-float {
+    position: absolute;
+    bottom: 14px;
+    right: 14px;
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    border: none;
+    background: var(--accent);
+    color: #0e0e0f;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: transform 0.15s, box-shadow 0.15s, opacity 0.2s;
+    box-shadow: 0 0 18px rgba(200, 240, 96, 0.4);
+    z-index: 10;
+  }
+  .btn-play-float:hover {
+    transform: scale(1.08);
+    box-shadow: 0 0 26px rgba(200, 240, 96, 0.6);
+  }
+  .btn-play-float:active { transform: scale(0.94); }
+  .btn-play-float svg { width: 20px; height: 20px; }
+
+  /* Playback bar — hide the big play button, keep controls & progress */
+  .btn-play { display: none; }
+
+  /* Shift char count up so it doesn't overlap play button */
+  .char-count { right: 72px; }
+
+  /* Padding bottom on textarea to avoid text hiding under button */
+  textarea { padding-bottom: 60px; }
+
   /* Controls row */
   .controls-grid {
     display: grid;
@@ -529,6 +564,11 @@
   <div class="textarea-wrapper" id="textareaWrapper">
     <textarea id="textInput" placeholder="ここにテキストを入力してください…&#10;&#10;例：今日も一日お疲れ様でした。ゆっくり休んでください。" maxlength="5000"></textarea>
     <div class="char-count"><span id="charCount">0</span> / 5000</div>
+    <!-- Floating play button -->
+    <button class="btn-play-float" id="btnPlayFloat" onclick="togglePlay()" title="再生 / 一時停止">
+      <svg id="iconPlayFloat" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+      <svg id="iconPauseFloat" viewBox="0 0 24 24" fill="currentColor" style="display:none"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+    </button>
   </div>
   <div class="highlight-display" id="highlightDisplay"></div>
 
@@ -813,14 +853,17 @@
   function showHighlight(show) {
     const ta = document.getElementById('textareaWrapper');
     const hl = document.getElementById('highlightDisplay');
+    const floatBtn = document.getElementById('btnPlayFloat');
     if (show) {
       const text = document.getElementById('textInput').value;
       hl.style.minHeight = ta.offsetHeight + 'px';
-      ta.style.display = 'none';
+      document.getElementById('textInput').style.display = 'none';
       hl.classList.add('visible');
+      floatBtn.style.zIndex = '20';
     } else {
-      ta.style.display = '';
+      document.getElementById('textInput').style.display = '';
       hl.classList.remove('visible');
+      floatBtn.style.zIndex = '10';
     }
   }
 
@@ -831,6 +874,8 @@
     const pbState = document.getElementById('playbackState');
     const iconPlay = document.getElementById('iconPlay');
     const iconPause = document.getElementById('iconPause');
+    const iconPlayFloat = document.getElementById('iconPlayFloat');
+    const iconPauseFloat = document.getElementById('iconPauseFloat');
     const waveBars = document.querySelectorAll('.wave-bar');
 
     if (state === 'playing') {
@@ -840,6 +885,8 @@
       pbState.className = 'playback-state playing';
       iconPlay.style.display = 'none';
       iconPause.style.display = '';
+      iconPlayFloat.style.display = 'none';
+      iconPauseFloat.style.display = '';
       waveBars.forEach(b => b.classList.add('active'));
     } else if (state === 'paused') {
       dot.classList.remove('active');
@@ -848,6 +895,8 @@
       pbState.className = 'playback-state';
       iconPlay.style.display = '';
       iconPause.style.display = 'none';
+      iconPlayFloat.style.display = '';
+      iconPauseFloat.style.display = 'none';
       waveBars.forEach(b => b.classList.remove('active'));
     } else {
       dot.classList.remove('active');
@@ -856,6 +905,8 @@
       pbState.className = 'playback-state';
       iconPlay.style.display = '';
       iconPause.style.display = 'none';
+      iconPlayFloat.style.display = '';
+      iconPauseFloat.style.display = 'none';
       waveBars.forEach(b => b.classList.remove('active'));
     }
   }
